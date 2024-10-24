@@ -20,7 +20,20 @@ export class Course extends Document {
   @Prop() bannerImage: string;
   @Prop() mainImage: string;
   @Prop({ default: 0 }) rating: number;
+  @Prop() creatorId: string; // Campo para el ID del creador
   @Prop([CommentSchema]) comments: Comment[];
+  @Prop({
+    type: [
+      {
+        idCurso: { type: String, required: true },
+        fechaInscripcion: { type: Date, required: true },
+      },
+    ],
+  })
+  cursosInscritos: {
+    idCurso: string;
+    fechaInscripcion: Date;
+  }[];
 }
 
 export const CourseSchema = SchemaFactory.createForClass(Course);
