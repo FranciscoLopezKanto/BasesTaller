@@ -7,7 +7,7 @@ async function bootstrap() {
 
   // Configuración de Swagger
   const config = new DocumentBuilder()
-    .setTitle('API taller base de datos')
+    .setTitle('API del taller base de datos')
     .setDescription('Documentación de la API del taller 1 base de datos')
     .setVersion('1.0')
     .addTag('miApi') // Puedes agregar etiquetas para organizar tus endpoints
@@ -17,5 +17,6 @@ async function bootstrap() {
   SwaggerModule.setup('api', app, document); // La documentación estará disponible en /api
 
   await app.listen(3000);
+
 }
 bootstrap();
