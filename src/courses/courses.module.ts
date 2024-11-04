@@ -12,6 +12,6 @@ import { UserModule } from 'src/user/user.module';
   ],
   controllers: [CoursesController],
   providers: [CoursesService],
-  exports: [CoursesService],  // Exportar si es necesario para otros módulos
+  exports: [CoursesService],  // Exportar si es necesario para otros módulos asdasd 
 })
 export class CoursesModule {}
