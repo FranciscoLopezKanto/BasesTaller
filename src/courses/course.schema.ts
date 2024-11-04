@@ -30,8 +30,8 @@ export class Course extends Document {
       },
     ],
   })
-  cursosInscritos: {
-    idCurso: string;
+  UsersInscritos: {
+    idUser: string;
     fechaInscripcion: Date;
   }[];
 }

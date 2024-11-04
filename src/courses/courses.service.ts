@@ -27,10 +27,10 @@ export class CoursesService {
     }
 
     // Verificar que todos los usuarios inscritos existen
-    for (const inscripto of course.cursosInscritos) {
-      const userExists = await this.userService.findOne(inscripto.idCurso);
+    for (const inscripto of course.UsersInscritos) {
+      const userExists = await this.userService.findOne(inscripto.idUser);
       if (!userExists) {
-        throw new BadRequestException(`El usuario con ID ${inscripto.idCurso} no existe.`);
+        throw new BadRequestException(`El usuario con ID ${inscripto.idUser} no existe.`);
       }
     }
 
