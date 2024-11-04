@@ -62,7 +62,7 @@ async function populateDB() {
         rating: Math.floor(Math.random() * 6), // Rating aleatorio entre 0 y 5
         creatorId: creatorId, // ID del creador
         comments: [], // Inicialmente vacío
-        cursosInscritos: [] // Inicialmente vacío
+        UsersInscritos: []
       };
 
       // Decide aleatoriamente si agregar alumnos al curso
@@ -81,8 +81,8 @@ async function populateDB() {
           });
 
           // Agregar el estudiante a los cursosInscritos
-          course.cursosInscritos.push({
-            idCurso: studentId,
+          course.UsersInscritos.push({
+            idUser: studentId,
             fechaInscripcion: fechaInscripcion,
           });
         }

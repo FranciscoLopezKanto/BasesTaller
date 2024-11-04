@@ -1,0 +1,33 @@
+version: '3'
+services:
+  mongodb:
+    image: mongo:6
+    container_name: nestjs-mongo
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongodb_data:/data/db
+
+  nestjs-app:
+    build: .
+    container_name: nestjs-app
+    ports:
+      - '3000:3000'
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/nestjs
+    depends_on:
+      - mongodb
+
+  populate-db:
+    build: .
+    container_name: populate-db
+    command: node dist/populate-db.js
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017/nestjs
+    depends_on:
+      - mongodb
+      - nestjs-app
+    restart: "no"
+
+volumes:
+  mongodb_data:
