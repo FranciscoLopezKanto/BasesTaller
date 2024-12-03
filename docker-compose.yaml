@@ -8,22 +8,31 @@ services:
     volumes:
       - mongodb_data:/data/db
 
+  redis:
+    image: redis:7
+    container_name: nestjs-redis
+    ports:
+      - '6379:6379'
+
   nestjs-app:
     build: .
     container_name: nestjs-app
     ports:
       - '3000:3000'
     environment:
-      MONGODB_URI: mongodb://mongodb:27017/nestjs
+      MONGODB_URI: mongodb+srv://kanto:password1234@cluster0.olhio.mongodb.net/?retryWrites=true&w=majority&appName=Mongo
+      REDIS_HOST: nestjs-redis
+      REDIS_PORT: 6379
     depends_on:
       - mongodb
+      - redis
 
   populate-db:
     build: .
     container_name: populate-db
     command: node dist/populate-db.js
     environment:
-      MONGODB_URI: mongodb://mongodb:27017/nestjs
+      MONGODB_URI: mongodb+srv://kanto:password1234@cluster0.olhio.mongodb.net/?retryWrites=true&w=majority&appName=Mongo
     depends_on:
       - mongodb
       - nestjs-app

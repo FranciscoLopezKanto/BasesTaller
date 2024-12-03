@@ -1,48 +1,30 @@
+const Redis = require('ioredis');
+const redis = new Redis('redis://nestjs-redis:6379'); // Usar el nombre del servicio de Redis en Docker
 
-
-// Script que se encarga de poblar la base de datos
-
-// Importar las dependencias necesarias
-const MongoClient = require('mongodb').MongoClient;
-
-// URL de conexión a MongoDB
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/nestjs';
-
-// Función principal para poblar la base de datos
 async function populateDB() {
   console.log("STARTING SCRIPT");
-  
-  // Conectar a la base de datos
-  const client = new MongoClient(MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
 
   try {
-    await client.connect();
-    const db = client.db('nestjs'); // Nombre de la base de datos
-
-    // Limpiar la base de datos si existe algo antes
-    await db.dropDatabase();
-    console.log("Database dropped");
-
-    // Crear colecciones
-    const usersCollection = db.collection('users');
-    const coursesCollection = db.collection('courses');
+    // Limpiar la base de datos
+    await redis.flushall();
+    console.log("Redis database cleared");
 
     // Crear usuarios
     console.log("***********creating users*********");
 
     const users = [];
     for (let i = 1; i <= 10; i++) {
-      users.push({
-        _id: i.toString(), // ID como string
+      const userId = `user:${i}`;  // Clave única para cada usuario
+      const user = {
         nombre: `User ${i}`,
         email: `user${i}@example.com`,
-        cursosInscritos: [], // Campo para cursos inscritos, inicialmente vacío
-      });
+        cursosInscritos: [], // Inicialmente vacío
+      };
+      // Guardar en Redis como un string JSON
+      await redis.set(userId, JSON.stringify(user));
+      users.push(userId);  // Almacenar la clave
     }
 
-    // Guardar usuarios en la base de datos
-    console.log("***********saving users*********");
-    await usersCollection.insertMany(users);
     console.log(`${users.length} users saved`);
 
     // Crear cursos
@@ -50,61 +32,59 @@ async function populateDB() {
 
     const courses = [];
     for (let i = 1; i <= 20; i++) {
-      // Asignar un creador aleatorio de los usuarios
-      const creatorId = users[Math.floor(Math.random() * users.length)]._id;
-
+      const courseId = `course:${i}`; // Clave única para cada curso
       const course = {
-        _id: i.toString(), // ID como string
         name: `Course ${i}`,
         shortDescription: `Short description for Course ${i}`,
         bannerImage: `bannerImage${i}.png`,
         mainImage: `mainImage${i}.png`,
         rating: Math.floor(Math.random() * 6), // Rating aleatorio entre 0 y 5
-        creatorId: creatorId, // ID del creador
+        creatorId: users[Math.floor(Math.random() * users.length)], // Asignar un creador aleatorio de los usuarios
         comments: [], // Inicialmente vacío
-        UsersInscritos: []
+        UsersInscritos: [] // Usuarios inscritos
       };
 
-      // Decide aleatoriamente si agregar alumnos al curso
-      if (Math.random() > 0.5) {
-        // Asignar aleatoriamente a 1-3 alumnos a este curso
-        const numStudents = Math.floor(Math.random() * 3) + 1;
-        for (let j = 0; j < numStudents; j++) {
-          const studentId = users[Math.floor(Math.random() * users.length)]._id;
-          const fechaInscripcion = new Date(); // Puedes ajustar la fecha si es necesario
+      // Guardar curso en Redis como un string JSON
+      await redis.set(courseId, JSON.stringify(course));
+      courses.push(courseId);  // Almacenar la clave
 
-          // Agregar el curso al alumno
-          const userIndex = users.findIndex(user => user._id === studentId);
-          users[userIndex].cursosInscritos.push({
-            idCurso: course._id,
+      // Decidir aleatoriamente si agregar alumnos al curso
+      if (Math.random() > 0.5) {
+        const numStudents = Math.floor(Math.random() * 3) + 1; // 1-3 estudiantes por curso
+        for (let j = 0; j < numStudents; j++) {
+          const studentId = users[Math.floor(Math.random() * users.length)];
+          const fechaInscripcion = new Date();
+
+          // Actualizar el usuario con el curso inscrito
+          const user = JSON.parse(await redis.get(studentId)); // Obtener el usuario de Redis
+          user.cursosInscritos.push({
+            idCurso: courseId,
             fechaInscripcion: fechaInscripcion,
           });
 
-          // Agregar el estudiante a los cursosInscritos
-          course.UsersInscritos.push({
+          // Actualizar el usuario en Redis
+          await redis.set(studentId, JSON.stringify(user));
+
+          // Agregar al curso los estudiantes
+          const courseData = JSON.parse(await redis.get(courseId)); // Obtener el curso de Redis
+          courseData.UsersInscritos.push({
             idUser: studentId,
             fechaInscripcion: fechaInscripcion,
           });
+
+          // Actualizar el curso en Redis
+          await redis.set(courseId, JSON.stringify(courseData));
         }
       }
-
-      courses.push(course);
     }
 
-    // Guardar cursos en la base de datos
-    console.log("***********saving courses*********");
-    await coursesCollection.insertMany(courses);
     console.log(`${courses.length} courses saved`);
 
-    // Actualizar los usuarios con los cursos inscritos
-    await usersCollection.insertMany(users.map(user => ({ _id: user._id, cursosInscritos: user.cursosInscritos })));
-    console.log("Users updated with courses inscriptions");
-
   } catch (error) {
-    console.error("Error al poblar la base de datos:", error);
+    console.error("Error al poblar Redis:", error);
   } finally {
-    // Desconectar de la base de datos
-    await client.close();
+    // Cerrar la conexión a Redis
+    await redis.quit();
     console.log("SCRIPT FINISHED");
   }
 }
