@@ -1,5 +1,4 @@
 import { Controller, Get, Post, Body, Patch, Param } from '@nestjs/common';
-import { UserService } from './user.service';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import Redis from 'ioredis';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
@@ -7,16 +6,45 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/s
 @ApiTags('users')
 @Controller('users')
 export class UserController {
-  constructor(
-    private readonly userService: UserService,
-    @InjectRedis() private readonly redis: Redis // Inyectar Redis
-  ) {}
+  constructor(@InjectRedis() private readonly redis: Redis) {}
 
   @Post()
   @ApiOperation({ summary: 'Crear un nuevo usuario' })
   @ApiResponse({ status: 201, description: 'Usuario creado exitosamente.' })
-  create(@Body() user: { name: string; email: string }) {
-    return this.userService.create(user);
+  async create(@Body() user: { name: string; email: string }) {
+    const userId = `user:${Date.now()}`; // Generar un ID único basado en la marca de tiempo
+    const userData = { ...user, courses: [] };
+
+    // Guardar usuario en Redis
+    await this.redis.set(userId, JSON.stringify(userData));
+
+    // Agregar ID al índice de usuarios
+    await this.redis.sadd('user:ids', userId);
+
+    return { message: 'Usuario creado exitosamente.', userId, userData };
+  }
+
+  @Get()
+  @ApiOperation({ summary: 'Obtener todos los usuarios' })
+  @ApiResponse({ status: 200, description: 'Lista de todos los usuarios.' })
+  async getAllUsers() {
+    const userIds = await this.redis.smembers('user:ids'); // Obtener IDs de todos los usuarios
+    const users = await Promise.all(
+      userIds.map(async (id) => JSON.parse(await this.redis.get(id)))
+    );
+    return users;
+  }
+
+  @Get(':id')
+  @ApiOperation({ summary: 'Obtener un usuario por ID' })
+  @ApiParam({ name: 'id', description: 'ID del usuario' })
+  @ApiResponse({ status: 200, description: 'Usuario encontrado.' })
+  async getUserById(@Param('id') userId: string) {
+    const user = await this.redis.get(userId);
+    if (!user) {
+      return { message: 'User not found' };
+    }
+    return JSON.parse(user);
   }
 
   @Get(':id/courses')
@@ -25,56 +53,13 @@ export class UserController {
   @ApiResponse({
     status: 200,
     description: 'Lista de cursos del usuario.',
-    schema: {
-      example: [
-        { courseId: '101', state: 'EN CURSO', progress: 50, dateStarted: '2024-12-01' },
-      ],
-    },
   })
   async getUserCourses(@Param('id') userId: string) {
-    const keys = await this.redis.keys(`user:${userId}:courses:*`);
-    const courses = await Promise.all(
-      keys.map(async (key) => JSON.parse(await this.redis.get(key)))
-    );
-    return courses;
-  }
-
-  @Get()
-  @ApiOperation({ summary: 'Obtener todos los usuarios' })
-  @ApiResponse({
-    status: 200,
-    description: 'Lista de todos los usuarios.',
-    schema: {
-      example: [
-        { _id: 'user-1', nombre: 'User 1', email: 'user1@example.com', cursosInscritos: [] },
-        { _id: 'user-2', nombre: 'User 2', email: 'user2@example.com', cursosInscritos: [] },
-      ],
-    },
-  })
-  async getAllUsers() {
-    const keys = await this.redis.keys('user:*');  // Obtener todas las claves de los usuarios
-    const users = await Promise.all(
-      keys.map(async (key) => JSON.parse(await this.redis.get(key)))
-    );
-    return users;
-  }
-
-  @Get(':id')
-  @ApiOperation({ summary: 'Obtener un usuario por ID' })
-  @ApiParam({ name: 'id', description: 'ID del usuario' })
-  @ApiResponse({
-    status: 200,
-    description: 'Usuario encontrado.',
-    schema: {
-      example: { _id: 'user-1', nombre: 'User 1', email: 'user1@example.com', cursosInscritos: [] },
-    },
-  })
-  async getUserById(@Param('id') userId: string) {
-    const user = await this.redis.get(`user:${userId}`);  // Buscar el usuario por ID
-    if (!user) {
-      return { message: 'User not found' };
-    }
-    return JSON.parse(user);
+    const courses = await this.redis.hgetall(`user:${userId}:courses`);
+    return Object.entries(courses).map(([courseId, data]) => ({
+      courseId,
+      ...JSON.parse(data),
+    }));
   }
 
   @Patch(':id/courses/:courseId')
@@ -93,10 +78,13 @@ export class UserController {
     @Param('courseId') courseId: string,
     @Body() updateData: { state: string; progress: number }
   ) {
-    const key = `user:${userId}:courses:${courseId}`;
-    const courseData = JSON.parse(await this.redis.get(key)) || {};
-    const updatedData = { ...courseData, ...updateData };
-    await this.redis.set(key, JSON.stringify(updatedData));
+    const key = `user:${userId}:courses`;
+    const existingData = JSON.parse((await this.redis.hget(key, courseId)) || '{}');
+    const updatedData = { ...existingData, ...updateData };
+
+    // Actualizar datos del curso
+    await this.redis.hset(key, courseId, JSON.stringify(updatedData));
+
     return { message: 'Course progress updated successfully', updatedData };
   }
 }
