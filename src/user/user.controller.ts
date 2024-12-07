@@ -7,7 +7,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/s
 @Controller('users')
 export class UserController {
   constructor(@InjectRedis() private readonly redis: Redis) {}
-
+  
   @Post()
   @ApiOperation({ summary: 'Crear un nuevo usuario' })
   @ApiResponse({ status: 201, description: 'Usuario creado exitosamente.' })
