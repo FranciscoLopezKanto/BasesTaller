@@ -27,24 +27,26 @@ export class AuthService {
   }
 
   async register(registerData: { name: string; email: string; password: string }) {
-    // Verificar si el usuario ya existe
+    // Verificar si el usuario ya existe en Redis
     const existingUser = await this.userService.findByEmail(registerData.email);
     if (existingUser) {
       throw new ConflictException('El correo ya está registrado');
     }
-
-    // Crear un nuevo usuario
+  
+    // Crear una contraseña hasheada
     const hashedPassword = await bcrypt.hash(registerData.password, 10);
+  
+    // Crear el usuario en Redis
     const newUser = await this.userService.create({
       ...registerData,
       password: hashedPassword,
     });
-
+  
     // Generar el token JWT
     const payload = { email: newUser.email, sub: newUser.id };
     return {
       message: 'Usuario registrado exitosamente',
       access_token: this.jwtService.sign(payload),
     };
-  }
+  }  
 }

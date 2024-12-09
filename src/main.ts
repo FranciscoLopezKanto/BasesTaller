@@ -8,9 +8,8 @@ async function bootstrap() {
   // Configuración de Swagger
   const config = new DocumentBuilder()
     .setTitle('API del taller base de datos')
-    .setDescription('Documentación de la API del taller 1 base de datos')
+    .setDescription('Documentación de la API del taller 2')
     .setVersion('1.0')
-    .addTag('miApi') // Puedes agregar etiquetas para organizar tus endpoints
     .build();
     
   const document = SwaggerModule.createDocument(app, config);

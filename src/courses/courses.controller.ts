@@ -1,114 +1,209 @@
-import { Controller, Get, Post, Body, Param, Patch } from '@nestjs/common';
-import { InjectRedis } from '@nestjs-modules/ioredis';
-import Redis from 'ioredis';
+import { Controller, Get, Post, Patch, Body, Param } from '@nestjs/common';
+import { CoursesService } from './courses.service';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBody } from '@nestjs/swagger';
-
+import { Course } from './course.schema';
+class ProgressDto {
+  unitId: string;
+  classId: string;
+}
 @ApiTags('courses')
 @Controller('courses')
-export class CourseController {
-  constructor(@InjectRedis() private readonly redis: Redis) {}
+export class CoursesController {
+  constructor(private readonly coursesService: CoursesService) { }
 
-  @Post()
-  @ApiOperation({ summary: 'Crear un nuevo curso' })
-  @ApiResponse({ status: 201, description: 'Curso creado exitosamente.' })
-  async create(@Body() course: { name: string; description: string; bannerUrl: string }) {
-    const courseId = `course:${Date.now()}`; // ID único basado en timestamp
-    const courseData = { ...course, rating: 0, totalRatings: 0, comments: [] };
-
-    // Guardar curso en Redis
-    await this.redis.set(courseId, JSON.stringify(courseData));
-
-    // Agregar ID al índice de cursos
-    await this.redis.sadd('course:ids', courseId);
-
-    return { message: 'Curso creado exitosamente.', courseId, courseData };
-  }
-
+  // Endpoint para obtener todos los cursos
   @Get()
   @ApiOperation({ summary: 'Obtener todos los cursos' })
   @ApiResponse({ status: 200, description: 'Lista de todos los cursos.' })
-  async getAllCourses() {
-    const courseIds = await this.redis.smembers('course:ids'); // Obtener IDs de todos los cursos
-    const courses = await Promise.all(
-      courseIds.map(async (id) => JSON.parse(await this.redis.get(id)))
-    );
-    return courses;
+  async getAllCourses(): Promise<Course[]> {
+    return this.coursesService.findAll();
   }
 
+  // Endpoint para obtener un curso por su ID
   @Get(':id')
   @ApiOperation({ summary: 'Obtener un curso por ID' })
   @ApiParam({ name: 'id', description: 'ID del curso' })
-  @ApiResponse({
-    status: 200,
-    description: 'Curso encontrado.',
-  })
-  async getCourseById(@Param('id') courseId: string) {
-    const course = await this.redis.get(courseId);
-    if (!course) {
-      return { message: 'Course not found' };
-    }
-    return JSON.parse(course);
+  @ApiResponse({ status: 200, description: 'Curso encontrado.' })
+  async getCourseById(@Param('id') courseId: string): Promise<Course> {
+    return this.coursesService.findOne(courseId);
   }
 
-  @Patch(':id/rating')
-  @ApiOperation({ summary: 'Actualizar la puntuación de un curso' })
-  @ApiParam({ name: 'id', description: 'ID del curso' })
+  // Endpoint para crear un curso
+  @Post()
+  @ApiOperation({ summary: 'Crear un nuevo curso' })
   @ApiBody({
-    description: 'Datos para actualizar la puntuación',
+    description: 'Datos del nuevo curso',
     schema: {
-      example: { rating: 5 },
+      example: {
+        name: 'Curso de Programación',
+        shortDescription: 'Aprende a programar desde cero.',
+        bannerImage: 'url-banner',
+        mainImage: 'url-main-image',
+        rating: 0,
+        creatorId: 'user-id',
+        comments: [],
+        UsersInscritos: [],
+      },
     },
   })
-  @ApiResponse({
-    status: 200,
-    description: 'Puntuación actualizada exitosamente.',
-  })
-  async updateCourseRating(@Param('id') courseId: string, @Body() ratingData: { rating: number }) {
-    const course = JSON.parse(await this.redis.get(courseId));
-    if (!course) {
-      return { message: 'Course not found' };
-    }
-
-    // Calcular nuevo promedio
-    const newTotalRatings = course.totalRatings + 1;
-    const newRating =
-      (course.rating * course.totalRatings + ratingData.rating) / newTotalRatings;
-
-    // Actualizar datos del curso
-    const updatedCourse = { ...course, rating: newRating, totalRatings: newTotalRatings };
-    await this.redis.set(courseId, JSON.stringify(updatedCourse));
-
-    return { message: 'Course rating updated successfully', updatedCourse };
+  @ApiResponse({ status: 201, description: 'Curso creado exitosamente.' })
+  async create(@Body() course: Course): Promise<Course> {
+    return this.coursesService.create(course);
   }
 
+  // Endpoint para agregar un comentario a un curso
   @Patch(':id/comments')
   @ApiOperation({ summary: 'Agregar un comentario a un curso' })
   @ApiParam({ name: 'id', description: 'ID del curso' })
   @ApiBody({
     description: 'Datos del comentario',
     schema: {
-      example: { userId: 'user-1', title: 'Great Course', detail: 'Very informative', likes: 10 },
+      example: { author: 'Usuario 1', title: 'Excelente curso', detail: 'Me ayudó mucho, lo recomiendo' },
     },
   })
+  @ApiResponse({ status: 200, description: 'Comentario agregado exitosamente.' })
+  async addComment(
+    @Param('id') courseId: string,
+    @Body() commentData: { author: string; title: string; detail: string },
+  ): Promise<Course> {
+    return this.coursesService.addComment(courseId, commentData);
+  }
+  // Endpoint para agregar un like a un comentario
+  @Patch(':courseId/comments/:commentId/like')
+  @ApiOperation({ summary: 'Agregar un like a un comentario' })
+  @ApiParam({ name: 'courseId', description: 'ID del curso' })
+  @ApiParam({ name: 'commentId', description: 'ID del comentario' })
+  @ApiResponse({ status: 200, description: 'Comentario con like actualizado' })
+  async addLike(
+    @Param('courseId') courseId: string,
+    @Param('commentId') commentId: string,
+  ) {
+    const updatedComment = await this.coursesService.addLikeOrDislikeToComment(
+      courseId,
+      commentId,
+      'like',
+    );
+    return updatedComment;
+  }
+
+  // Endpoint para agregar un dislike a un comentario
+  @Patch(':courseId/comments/:commentId/dislike')
+  @ApiOperation({ summary: 'Agregar un dislike a un comentario' })
+  @ApiParam({ name: 'courseId', description: 'ID del curso' })
+  @ApiParam({ name: 'commentId', description: 'ID del comentario' })
+  @ApiResponse({ status: 200, description: 'Comentario con dislike actualizado' })
+  async addDislike(
+    @Param('courseId') courseId: string,
+    @Param('commentId') commentId: string,
+  ) {
+    const updatedComment = await this.coursesService.addLikeOrDislikeToComment(
+      courseId,
+      commentId,
+      'dislike',
+    );
+    return updatedComment;
+  }
+
+  // Endpoint para marcar una clase como vista por un usuario
+  @Patch(':courseId/users/:userId/progress')
+  @ApiOperation({ summary: 'Marcar una clase como vista por un usuario' })
+  @ApiParam({ name: 'courseId', description: 'ID del curso' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiBody({
+    description: 'Información sobre la unidad y clase a marcar como vista',
+    type: ProgressDto,
+  })
+  @ApiResponse({ status: 200, description: 'Progreso del usuario actualizado' })
+  async markClassAsViewed(
+    @Param('courseId') courseId: string,
+    @Param('userId') userId: string,
+    @Param('unitId') unitId: string,
+    @Param('classId') classId: string
+  ) {
+    // Llamar al servicio para marcar la clase como vista, pasando ambos 'unitId' y 'classId'
+    await this.coursesService.markClassAsViewed(
+      courseId,       // courseId
+      userId,         // userId
+      unitId,    // unitId
+      classId    // classId
+    );
+
+    return { message: 'Clase marcada como vista' };
+  }
+
+
+  @Get(':courseId/users/:userId/progress/percentage')
+  @ApiOperation({ summary: 'Obtener el porcentaje de progreso de un usuario en un curso' })
+  @ApiParam({ name: 'courseId', description: 'ID del curso' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
   @ApiResponse({
     status: 200,
-    description: 'Comentario agregado exitosamente.',
+    description: 'Porcentaje de progreso del usuario en el curso',
+    schema: {
+      example: { percentage: 75 },
+    },
   })
-  async addCourseComment(
-    @Param('id') courseId: string,
-    @Body() comment: { userId: string; title: string; detail: string; likes: number }
-  ) {
-    const course = JSON.parse(await this.redis.get(courseId));
-    if (!course) {
-      return { message: 'Course not found' };
-    }
-
-    // Agregar comentario a la lista
-    const updatedComments = [...course.comments, { ...comment, date: new Date().toISOString() }];
-    const updatedCourse = { ...course, comments: updatedComments };
-
-    await this.redis.set(courseId, JSON.stringify(updatedCourse));
-
-    return { message: 'Comment added successfully', updatedComments };
+  async getUserProgressPercentage(
+    @Param('courseId') courseId: string,
+    @Param('userId') userId: string,
+  ): Promise<{ percentage: number }> {
+    return this.coursesService.calculateUserProgress(courseId, userId);
   }
+  
+  // Endpoint para agregar un usuario a un curso
+  @Patch(':userId/enroll/:courseId')
+  @ApiOperation({ summary: 'Agregar un usuario a un curso' })
+  @ApiParam({ name: 'userId', description: 'ID del usuario' })
+  @ApiParam({ name: 'courseId', description: 'ID del curso' })
+  @ApiResponse({ status: 200, description: 'Usuario agregado al curso.' })
+  async enrollUser(
+    @Param('userId') userId: string,
+    @Param('courseId') courseId: string
+  ) {
+    const updatedCourse = await this.coursesService.enrollUserToCourse(userId, courseId);
+    return updatedCourse;
+  }
+  // Endpoint para agregar una unidad a un curso
+  @Post(':courseId/units')
+  @ApiOperation({ summary: 'Agregar una unidad a un curso' })
+  @ApiParam({ name: 'courseId', description: 'ID del curso' })
+  @ApiBody({
+    description: 'Datos de la unidad a agregar',
+    schema: {
+      example: {
+        unitId: 'unit-123',
+        name: 'Unidad 1: Introducción',
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Unidad agregada exitosamente al curso.' })
+  async addUnitToCourse(
+    @Param('courseId') courseId: string,
+    @Body() unitData: { unitId: string; name: string },
+  ): Promise<Course> {
+    return this.coursesService.addUnitToCourse(courseId, unitData);
+  }
+  // Endpoint para agregar una clase a una unidad de un curso
+  @Post(':courseId/units/:unitId/classes')
+  @ApiOperation({ summary: 'Agregar una clase a una unidad de un curso' })
+  @ApiParam({ name: 'courseId', description: 'ID del curso' })
+  @ApiParam({ name: 'unitId', description: 'ID de la unidad' })
+  @ApiBody({
+    description: 'Datos de la clase a agregar',
+    schema: {
+      example: {
+        classId: 'class-123',
+        name: 'Clase 1: Fundamentos básicos',
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Clase agregada exitosamente a la unidad.' })
+  async addClassToUnit(
+    @Param('courseId') courseId: string,
+    @Param('unitId') unitId: string,
+    @Body() classData: { classId: string; name: string },
+  ): Promise<Course> {
+    return this.coursesService.addClassToUnit(courseId, unitId, classData);
+  }
+
 }
