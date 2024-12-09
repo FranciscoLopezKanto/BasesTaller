@@ -10,82 +10,91 @@ export class UserService {
   constructor(
     @InjectModel(User.name) private userModel: Model<User>,
     @InjectRedis() private readonly redis: Redis // Inyectar Redis para compatibilidad
-  ) {}
+  ) { }
 
-  // Crear usuario tanto en Mongoose como en Redis
   async create(user: Partial<User>): Promise<User> {
-    // Guardar en MongoDB
-    const newUser = new this.userModel(user);
-    const savedUser = await newUser.save();
+    // Generar un ID único para el usuario
+    const userId = `user:${new Date().getTime()}`; // O usa una librería como `uuid`
+
+    // Crear un objeto del usuario
+    const userData = { ...user, id: userId.replace('user:', ''), courses: [] };
 
     // Guardar en Redis
-    const userId = `user:${savedUser._id}`; // Usar el ID generado por MongoDB
-    const userData = { ...savedUser.toObject(), courses: [] };
     await this.redis.set(userId, JSON.stringify(userData));
-    await this.redis.sadd('user:ids', userId);
+    await this.redis.sadd('user:ids', userId); // Agregar el ID al conjunto de usuarios
 
-    return savedUser;
+    return userData as User;
   }
 
-  // Obtener todos los usuarios desde MongoDB
+
   async findAll(): Promise<User[]> {
-    return this.userModel.find().exec();
-  }
+    const userIds = await this.redis.smembers('user:ids');
+    const users = [];
 
-  // Obtener un usuario por ID desde MongoDB
-  async findOne(id: string): Promise<User> {
-    const user = await this.userModel.findById(id).exec();
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-    return user;
-  }
-
-  // Buscar usuario por correo electrónico en Redis
-  async findByEmail(email: string) {
-    const userIds = await this.redis.smembers('user:ids'); // Obtener todos los IDs de usuario
     for (const userId of userIds) {
-      const user = JSON.parse(await this.redis.get(userId));
-      if (user && user.email === email) {
-        return { id: userId.replace('user:', ''), ...user }; // Quitar prefijo del ID
+      const userData = await this.redis.get(userId);
+      if (userData) {
+        users.push(JSON.parse(userData));
       }
     }
-    throw new NotFoundException(`User with email ${email} not found`);
+
+    return users;
   }
 
-  // Actualizar usuario en MongoDB
+  // Método para obtener un usuario desde Redis
+  async findOne(id: string): Promise<User | null> {
+    const userId = `user:${id}`;
+    const userData = await this.redis.get(userId);
+    if (!userData) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    return JSON.parse(userData);
+  }
+
+
+  // Buscar usuario por correo electrónico en Redis
+  async findByEmail(email: string): Promise<User | null> {
+    const userIds = await this.redis.smembers('user:ids'); // Obtener todos los IDs de usuario
+    for (const userId of userIds) {
+      const userData = await this.redis.get(userId);
+      if (!userData) continue; // Salta si no hay datos para el ID
+
+      const user = JSON.parse(userData);
+      if (user && user.email === email) {
+        return { id: userId.replace('user:', ''), ...user }; // Devuelve el usuario encontrado
+      }
+    }
+    return null; // Devuelve null si no se encuentra el usuario
+  }
+
+
   async update(id: string, user: Partial<User>): Promise<User> {
-    const updatedUser = await this.userModel
-      .findByIdAndUpdate(id, user, { new: true })
-      .exec();
+    const userId = `user:${id}`;
+    const existingData = await this.redis.get(userId);
 
-    if (!updatedUser) {
+    if (!existingData) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    // Actualizar también en Redis
-    const userId = `user:${id}`;
-    const existingData = JSON.parse(await this.redis.get(userId));
-    if (existingData) {
-      const updatedData = { ...existingData, ...user };
-      await this.redis.set(userId, JSON.stringify(updatedData));
-    }
+    const updatedData = { ...JSON.parse(existingData), ...user };
+    await this.redis.set(userId, JSON.stringify(updatedData));
 
-    return updatedUser;
+    return updatedData as User;
   }
 
-  // Eliminar usuario de MongoDB y Redis
+
   async remove(id: string): Promise<User> {
-    const deletedUser = await this.userModel.findByIdAndDelete(id).exec();
-    if (!deletedUser) {
+    const userId = `user:${id}`;
+    const userData = await this.redis.get(userId);
+
+    if (!userData) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
 
-    // Eliminar también en Redis
-    const userId = `user:${id}`;
-    await this.redis.del(userId);
-    await this.redis.srem('user:ids', userId);
+    await this.redis.del(userId); // Elimina el usuario
+    await this.redis.srem('user:ids', userId); // Elimina el ID del conjunto
 
-    return deletedUser;
+    return JSON.parse(userData) as User;
   }
+
 }
