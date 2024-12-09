@@ -18,5 +18,6 @@ import { UserModule } from '../user/user.module'; // Asegúrate de importar el m
   ],
   providers: [CoursesService],
   controllers: [CoursesController],
+  exports: [CoursesService],  // Exportar si es necesario para otros módulos asdasd 
 })
 export class CoursesModule {}
