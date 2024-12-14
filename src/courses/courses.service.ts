@@ -1,217 +1,220 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { Course, Unit, Comment } from './course.schema';
-import { UserService } from '../user/user.service';
+import neo4j, { Driver, Session } from 'neo4j-driver';
+import { Course } from './course.schema';
 
 @Injectable()
 export class CoursesService {
-  constructor(
-    @InjectModel(Course.name) private courseModel: Model<Course>,
-    @InjectModel(Comment.name) private commentModel: Model<Comment>,
-    @InjectModel(Unit.name) private unitModel: Model<Unit>,
-    private readonly userService: UserService,
-  ) {}
+  findOne(courseId: string): import("./course.schema").Course | PromiseLike<import("./course.schema").Course> {
+    throw new Error('Method not implemented.');
+  }
+  create(course: Course): import("./course.schema").Course | PromiseLike<import("./course.schema").Course> {
+    throw new Error('Method not implemented.');
+  }
+  findAll(): import("./course.schema").Course[] | PromiseLike<import("./course.schema").Course[]> {
+    throw new Error('Method not implemented.');
+  }
+  private readonly driver: Driver;
 
-  // Método para agregar un comentario a un curso
-  async addComment(courseId: string, commentData: { author: string; title: string; detail: string }): Promise<Course> {
-    const newComment = new this.commentModel({
-      author: commentData.author,
-      title: commentData.title,
-      detail: commentData.detail,
-      date: new Date(),
-      likes: 0,
-      dislikes: 0,
-    });
-
-    const course = await this.courseModel.findById(courseId);
-    if (!course) {
-      throw new NotFoundException('Curso no encontrado');
-    }
-
-    course.comments.push(newComment);
-    await course.save();
-
-    return course;
+  constructor() {
+    this.driver = neo4j.driver(
+      'bolt://localhost:7687', // URL del servidor Neo4j
+      neo4j.auth.basic('neo4j', 'password') // Credenciales de Neo4j
+    );
   }
 
-  // Método para obtener todos los cursos
-  async findAll(): Promise<Course[]> {
-    return this.courseModel.find().exec();
-  }
-
-  // Método para obtener un curso por ID
-  async findOne(id: string): Promise<Course> {
-    const course = await this.courseModel.findById(id);
-    if (!course) {
-      throw new NotFoundException('Curso no encontrado');
-    }
-    return course;
+  private getSession(): Session {
+    return this.driver.session();
   }
 
   // Método para crear un curso
-  async create(course: Course): Promise<Course> {
-    const newCourse = new this.courseModel(course);
-    return newCourse.save();
+  async createCourse(courseId: string, name: string): Promise<void> {
+    const session = this.getSession();
+    try {
+      const query = `
+        CREATE (c:Course {id: $courseId, name: $name})
+      `;
+      await session.run(query, { courseId, name });
+    } finally {
+      await session.close();
+    }
   }
 
+  async addComment(courseId: string, commentData: { author: string; title: string; detail: string }): Promise<Course> {
+    const session = this.getSession();
+    try {
+      const courseResult = await session.run(
+        'MATCH (course:Course {id: $courseId}) RETURN course',
+        { courseId }
+      );
+
+      const course = courseResult.records[0]?.get('course').properties;
+
+      if (!course) {
+        throw new NotFoundException('Course not found');
+      }
+
+      const newComment = {
+        author: commentData.author,
+        title: commentData.title,
+        detail: commentData.detail,
+        date: new Date().toISOString(),
+        likes: 0,
+        dislikes: 0,
+      };
+
+      await session.run(
+        'MATCH (course:Course {id: $courseId}) CREATE (comment:Comment $newComment) CREATE (course)-[:HAS_COMMENT]->(comment) RETURN course',
+        { courseId, newComment }
+      );
+
+      const updatedCourseResult = await session.run(
+        'MATCH (course:Course {id: $courseId}) RETURN course',
+        { courseId }
+      );
+
+      return updatedCourseResult.records[0].get('course').properties;
+    } finally {
+      await session.close();
+    }
+  }
+  
   // Método para agregar un like o dislike a un comentario
   async addLikeOrDislikeToComment(
-    courseId: string,
     commentId: string,
     action: 'like' | 'dislike',
-  ): Promise<Comment> {
-    const course = await this.courseModel.findById(courseId);
-    if (!course) {
-      throw new NotFoundException('Curso no encontrado');
-    }
+  ): Promise<void> {
+    const session = this.getSession();
 
-    const comment = course.comments.find((comment) => comment._id.toString() === commentId);
-    if (!comment) {
-      throw new NotFoundException('Comentario no encontrado');
+    try {
+      const query = `
+        MATCH (com:Comment {id: $commentId})
+        SET com.${action}s = com.${action}s + 1
+      `;
+      await session.run(query, { commentId });
+    } finally {
+      await session.close();
     }
+  }
 
-    if (action === 'like') {
-      comment.likes += 1;
-    } else if (action === 'dislike') {
-      comment.dislikes += 1;
+  // Método para obtener comentarios de un curso
+  async getComments(courseId: string): Promise<any[]> {
+    const session = this.getSession();
+
+    try {
+      const query = `
+        MATCH (c:Course {id: $courseId})-[:HAS_COMMENT]->(com:Comment)
+        RETURN com
+      `;
+      const result = await session.run(query, { courseId });
+      return result.records.map((record) => record.get('com').properties);
+    } finally {
+      await session.close();
     }
+  }
 
-    await course.save();
-    return comment;
+  // Método para calcular la puntuación promedio de un curso basado en likes y dislikes
+  async getCourseRatings(courseId: string): Promise<{ averageRating: number }> {
+    const session = this.getSession();
+
+    try {
+      const query = `
+        MATCH (c:Course {id: $courseId})-[:HAS_COMMENT]->(com:Comment)
+        RETURN avg(com.likes - com.dislikes) as averageRating
+      `;
+      const result = await session.run(query, { courseId });
+      const averageRating = result.records[0]?.get('averageRating') || 0;
+      return { averageRating };
+    } finally {
+      await session.close();
+    }
   }
 
   // Método para agregar una unidad a un curso
-  async addUnitToCourse(courseId: string, unitData: { unitId: string; name: string }): Promise<Course> {
-    const course = await this.courseModel.findById(courseId);
-    if (!course) {
-      throw new NotFoundException('Curso no encontrado');
+  async addUnitToCourse(courseId: string, unitId: string, name: string): Promise<void> {
+    const session = this.getSession();
+    try {
+      const query = `
+        MATCH (c:Course {id: $courseId})
+        CREATE (c)-[:HAS_UNIT]->(u:Unit {id: $unitId, name: $name})
+      `;
+      await session.run(query, { courseId, unitId, name });
+    } finally {
+      await session.close();
     }
-
-    // Verificar si la unidad ya existe
-    const existingUnit = course.units.find((unit) => unit.unitId === unitData.unitId);
-    if (existingUnit) {
-      throw new Error('Unidad ya existe en este curso');
-    }
-
-    const newUnit = new this.unitModel({
-      unitId: unitData.unitId,
-      name: unitData.name,
-      classes: [],
-    });
-
-    course.units.push(newUnit);
-    await course.save();
-
-    return course;
   }
 
-  // Método para agregar una clase a una unidad de un curso
-  async addClassToUnit(courseId: string, unitId: string, classData: { classId: string; name: string }): Promise<Course> {
-    const course = await this.courseModel.findById(courseId);
-    if (!course) {
-      throw new NotFoundException('Curso no encontrado');
+  // Método para agregar una clase a una unidad
+  async addClassToUnit(courseId: string, unitId: string, classId: string, name: string): Promise<void> {
+    const session = this.getSession();
+    try {
+      const query = `
+        MATCH (c:Course {id: $courseId})-[:HAS_UNIT]->(u:Unit {id: $unitId})
+        CREATE (u)-[:HAS_CLASS]->(cl:Class {id: $classId, name: $name})
+      `;
+      await session.run(query, { courseId, unitId, classId, name });
+    } finally {
+      await session.close();
     }
-
-    const unit = course.units.find((unit) => unit.unitId === unitId);
-    if (!unit) {
-      throw new NotFoundException('Unidad no encontrada');
-    }
-
-    // Verificar si la clase ya existe en la unidad
-    const existingClass = unit.classes.find((cls) => cls.classId === classData.classId);
-    if (existingClass) {
-      throw new Error('Clase ya existe en esta unidad');
-    }
-
-    unit.classes.push(classData);
-    await course.save();
-
-    return course;
   }
+
+  // Método para marcar una clase como vista por un usuario
   async markClassAsViewed(courseId: string, userId: string, unitId: string, classId: string): Promise<void> {
-    const course = await this.courseModel.findById(courseId);
-    if (!course) {
-      throw new NotFoundException('Curso no encontrado');
+    const session = this.getSession();
+    try {
+      const query = `
+        MATCH (c:Course {id: $courseId})-[:HAS_UNIT]->(u:Unit {id: $unitId})-[:HAS_CLASS]->(cl:Class {id: $classId})
+        MERGE (u:User {id: $userId})
+        MERGE (u)-[:VIEWED]->(cl)
+      `;
+      await session.run(query, { courseId, userId, unitId, classId });
+    } finally {
+      await session.close();
     }
-  
-    // Encontrar el progreso del usuario
-    let userProgress = course.UsersProgress.find((progress) => progress.idUser === userId);
-    if (!userProgress) {
-      userProgress = { idUser: userId, progress: [] };
-      course.UsersProgress.push(userProgress);
-    }
-  
-    // Encontrar la clase dentro de la unidad
-    const existingProgress = userProgress.progress.find(
-      (progress) => progress.unitId === unitId && progress.classId === classId,
-    );
-  
-    if (!existingProgress) {
-      // Si no existe, agregar como vista
-      userProgress.progress.push({
-        unitId,
-        classId,
-        viewed: true,
-      });
-    } else {
-      // Si ya existe, marcar como vista si aún no lo está
-      existingProgress.viewed = true;
-    }
-  
-    await course.save();
   }
-  
+
+  // Método para calcular el progreso del usuario en un curso
   async calculateUserProgress(courseId: string, userId: string): Promise<{ percentage: number }> {
-    const course = await this.courseModel.findById(courseId);
-    if (!course) {
-      throw new NotFoundException('Curso no encontrado');
+    const session = this.getSession();
+    try {
+      const totalClassesQuery = `
+        MATCH (c:Course {id: $courseId})-[:HAS_UNIT]->(:Unit)-[:HAS_CLASS]->(cl:Class)
+        RETURN count(cl) as totalClasses
+      `;
+      const viewedClassesQuery = `
+        MATCH (u:User {id: $userId})-[:VIEWED]->(cl:Class)<-[:HAS_CLASS]-(:Unit)<-[:HAS_UNIT]-(c:Course {id: $courseId})
+        RETURN count(cl) as viewedClasses
+      `;
+
+      const totalClassesResult = await session.run(totalClassesQuery, { courseId });
+      const viewedClassesResult = await session.run(viewedClassesQuery, { courseId, userId });
+
+      const totalClasses = totalClassesResult.records[0]?.get('totalClasses').toInt() || 0;
+      const viewedClasses = viewedClassesResult.records[0]?.get('viewedClasses').toInt() || 0;
+
+      const percentage = totalClasses === 0 ? 0 : (viewedClasses / totalClasses) * 100;
+      return { percentage: Math.round(percentage) };
+    } finally {
+      await session.close();
     }
-  
-    // Obtener todas las clases del curso
-    const totalClasses = course.units.reduce(
-      (sum, unit) => sum + unit.classes.length,
-      0,
-    );
-  
-    if (totalClasses === 0) {
-      return { percentage: 0 }; // Evitar divisiones por 0
-    }
-  
-    // Obtener progreso del usuario
-    const userProgress = course.UsersProgress.find((progress) => progress.idUser === userId);
-    if (!userProgress) {
-      return { percentage: 0 }; // Sin progreso
-    }
-  
-    // Contar clases vistas
-    const viewedClasses = userProgress.progress.filter((progress) => progress.viewed).length;
-  
-    // Calcular porcentaje
-    const percentage = (viewedClasses / totalClasses) * 100;
-  
-    return { percentage: Math.round(percentage) };
   }
-  
 
-  // Método para inscribir a un usuario en un curso
-  async enrollUserToCourse(userId: string, courseId: string): Promise<Course> {
-    const course = await this.courseModel.findById(courseId);
-    if (!course) {
-      throw new NotFoundException('Curso no encontrado');
+  // Método para inscribir un usuario a un curso
+  async enrollUserToCourse(userId: string, courseId: string): Promise<void> {
+    const session = this.getSession();
+    try {
+      const query = `
+        MATCH (c:Course {id: $courseId})
+        MERGE (u:User {id: $userId})
+        MERGE (u)-[:ENROLLED_IN]->(c)
+      `;
+      await session.run(query, { userId, courseId });
+    } finally {
+      await session.close();
     }
+  }
 
-    const userAlreadyEnrolled = course.UsersInscritos.some((user) => user.idUser === userId);
-    if (userAlreadyEnrolled) {
-      throw new Error('Usuario ya inscrito en este curso');
-    }
-
-    course.UsersInscritos.push({
-      idUser: userId,
-      fechaInscripcion: new Date(),
-    });
-
-    await course.save();
-    return course;
+  // Método para cerrar la conexión con Neo4j
+  async closeConnection(): Promise<void> {
+    await this.driver.close();
   }
 }

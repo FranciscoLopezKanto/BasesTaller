@@ -1,4 +1,5 @@
 version: '3'
+
 services:
   mongodb:
     image: mongo:6
@@ -27,6 +28,16 @@ services:
       - mongodb
       - redis
 
+  neo4j:
+    image: neo4j:5
+    container_name: neo4j-container
+    environment:
+      NEO4J_AUTH: neo4j/password1234
+    ports:
+      - '7687:7687'
+    volumes:
+      - neo4j_data:/data
+
   populate-db:
     build: .
     container_name: populate-db
@@ -35,8 +46,11 @@ services:
       MONGODB_URI: mongodb+srv://kanto:password1234@cluster0.olhio.mongodb.net/?retryWrites=true&w=majority&appName=Mongo
     depends_on:
       - mongodb
+      - redis
       - nestjs-app
+      - neo4j
     restart: "no"
 
 volumes:
   mongodb_data:
+  neo4j_data:

@@ -5,7 +5,7 @@ import { CoursesController } from './courses.controller';
 import { Course, CourseSchema } from './course.schema';
 import { Comment, CommentSchema } from './course.schema';
 import { Unit, UnitSchema } from './course.schema';
-import { UserModule } from '../user/user.module'; // Asegúrate de importar el módulo de User
+import { UserModule } from '../user/user.module'; 
 
 @Module({
   imports: [
@@ -18,6 +18,6 @@ import { UserModule } from '../user/user.module'; // Asegúrate de importar el m
   ],
   providers: [CoursesService],
   controllers: [CoursesController],
-  exports: [CoursesService],  // Exportar si es necesario para otros módulos asdasd 
+  exports: [CoursesService], // Exportar si es necesario para otros módulos
 })
 export class CoursesModule {}

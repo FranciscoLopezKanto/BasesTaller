@@ -1,11 +1,20 @@
 const Redis = require('ioredis');
+const neo4j = require('neo4j-driver').v1;
 const redis = new Redis('redis://nestjs-redis:6379'); // Usar el nombre del servicio de Redis en Docker
+
+const neo4jDriver = neo4j.driver(
+  'bolt://neo4j:7687',
+  neo4j.auth.basic('neo4j', 'password1234') // Credenciales de Neo4j
+);
 
 async function populateDB() {
   console.log("STARTING SCRIPT");
 
   try {
-    // Limpiar la base de datos
+    // Conectar a Neo4j
+    const session = neo4jDriver.session();
+
+    // Limpiar Redis y Neo4j
     await redis.flushall();
     console.log("Redis database cleared");
 
@@ -23,6 +32,13 @@ async function populateDB() {
       // Guardar en Redis como un string JSON
       await redis.set(userId, JSON.stringify(user));
       users.push(userId);  // Almacenar la clave
+
+      // Crear nodo de usuario en Neo4j
+      await session.run('CREATE (u:User {id: $id, nombre: $nombre, email: $email})', {
+        id: userId,
+        nombre: `User ${i}`,
+        email: `user${i}@example.com`
+      });
     }
 
     console.log(`${users.length} users saved`);
@@ -74,17 +90,28 @@ async function populateDB() {
 
           // Actualizar el curso en Redis
           await redis.set(courseId, JSON.stringify(courseData));
+
+          // Crear relación entre estudiante y curso en Neo4j
+          await session.run(
+            'MATCH (u:User {id: $userId}), (c:Course {id: $courseId}) ' +
+            'CREATE (u)-[:ENROLLED_IN]->(c)',
+            { userId: studentId, courseId: courseId }
+          );
         }
       }
     }
 
     console.log(`${courses.length} courses saved`);
 
+    await session.close();
+    console.log("Neo4j session closed");
+
   } catch (error) {
-    console.error("Error al poblar Redis:", error);
+    console.error("Error al poblar Redis y Neo4j:", error);
   } finally {
     // Cerrar la conexión a Redis
     await redis.quit();
+    console.log("Redis connection closed");
     console.log("SCRIPT FINISHED");
   }
 }
