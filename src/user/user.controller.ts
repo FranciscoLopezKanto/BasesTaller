@@ -46,45 +46,4 @@ export class UserController {
     }
     return JSON.parse(user);
   }
-
-  @Get(':id/courses')
-  @ApiOperation({ summary: 'Obtener los cursos de un usuario' })
-  @ApiParam({ name: 'id', description: 'ID del usuario' })
-  @ApiResponse({
-    status: 200,
-    description: 'Lista de cursos del usuario.',
-  })
-  async getUserCourses(@Param('id') userId: string) {
-    const courses = await this.redis.hgetall(`user:${userId}:courses`);
-    return Object.entries(courses).map(([courseId, data]) => ({
-      courseId,
-      ...JSON.parse(data),
-    }));
-  }
-
-  @Patch(':id/courses/:courseId')
-  @ApiOperation({ summary: 'Actualizar el progreso de un curso para un usuario' })
-  @ApiParam({ name: 'id', description: 'ID del usuario' })
-  @ApiParam({ name: 'courseId', description: 'ID del curso' })
-  @ApiBody({
-    description: 'Datos para actualizar el progreso del curso',
-    schema: {
-      example: { state: 'COMPLETADO', progress: 100 },
-    },
-  })
-  @ApiResponse({ status: 200, description: 'Progreso actualizado exitosamente.' })
-  async updateCourseProgress(
-    @Param('id') userId: string,
-    @Param('courseId') courseId: string,
-    @Body() updateData: { state: string; progress: number }
-  ) {
-    const key = `user:${userId}:courses`;
-    const existingData = JSON.parse((await this.redis.hget(key, courseId)) || '{}');
-    const updatedData = { ...existingData, ...updateData };
-
-    // Actualizar datos del curso
-    await this.redis.hset(key, courseId, JSON.stringify(updatedData));
-
-    return { message: 'Course progress updated successfully', updatedData };
-  }
 }

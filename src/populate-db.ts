@@ -27,7 +27,6 @@ async function populateDB() {
       const user = {
         nombre: `User ${i}`,
         email: `user${i}@example.com`,
-        cursosInscritos: [], // Inicialmente vacío
       };
       // Guardar en Redis como un string JSON
       await redis.set(userId, JSON.stringify(user));
